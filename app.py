@@ -6,8 +6,8 @@ import requests
 from io import BytesIO
 
 # --- Link ZIP dari Google Drive (pastikan public)
-ZIP_ID = "GANTI_DENGAN_ID_GOOGLE_DRIVE"
-ZIP_URL = f"https://drive.google.com/uc?id={ZIP_ID}"
+ZIP_ID = "1so8pb-lcxxC5M7pD0qIFb4PTaXPzdmL7"
+ZIP_URL = f"https://drive.google.com/file/d/1so8pb-lcxxC5M7pD0qIFb4PTaXPzdmL7/view?usp=sharing"
 
 @st.cache_resource
 def download_models():
