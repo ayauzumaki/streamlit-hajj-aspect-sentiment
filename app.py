@@ -2,49 +2,57 @@ import streamlit as st
 import torch
 import os
 import zipfile
-import requests
-from io import BytesIO
+import gdown
 
-# --- Link ZIP dari Google Drive (pastikan public)
-ZIP_ID = "1so8pb-lcxxC5M7pD0qIFb4PTaXPzdmL7"
-ZIP_URL = f"https://drive.google.com/file/d/1so8pb-lcxxC5M7pD0qIFb4PTaXPzdmL7/view?usp=sharing"
-
+# --- Fungsi download ZIP model dari Google Drive
 @st.cache_resource
 def download_models():
-    response = requests.get(ZIP_URL)
-    with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
+    ZIP_ID = "1so8pb-lcxxC5M7pD0qIFb4PTaXPzdmL7"  # Ganti dengan ID Google Drive milikmu
+    ZIP_FILE = "models.zip"
+
+    # Unduh file ZIP dari Google Drive
+    gdown.download(id=ZIP_ID, output=ZIP_FILE, quiet=False)
+
+    # Ekstrak ZIP ke folder "models"
+    with zipfile.ZipFile(ZIP_FILE, 'r') as zip_ref:
         zip_ref.extractall("models")
+
+    # Hapus file ZIP
+    os.remove(ZIP_FILE)
+
     return True
 
+# --- Cek apakah model sudah ada, kalau belum download
 if not os.path.exists("models/aspek/petugas.pt"):
     st.info("Mengunduh model...")
     download_models()
 
-# Daftar aspek
+# --- Daftar aspek
 aspek_list = ["petugas", "ibadah", "akomodasi", "konsumsi", "transportasi", "lainnya"]
 
-# Load semua model aspek
+# --- Load semua model aspek
 model_aspek_dict = {
-    aspek: torch.load(f"models/aspek/{aspek}.pt") for aspek in aspek_list
+    aspek: torch.load(f"models/aspek/{aspek}.pt", map_location=torch.device('cpu')) for aspek in aspek_list
 }
-# Load semua model sentimen
+# --- Load semua model sentimen
 model_sentimen_dict = {
-    aspek: torch.load(f"models/sentimen/{aspek}.pt") for aspek in aspek_list
+    aspek: torch.load(f"models/sentimen/{aspek}.pt", map_location=torch.device('cpu')) for aspek in aspek_list
 }
 
-for m in model_aspek_dict.values():
-    m.eval()
-for m in model_sentimen_dict.values():
-    m.eval()
+# --- Set semua model ke eval mode
+for model in model_aspek_dict.values():
+    model.eval()
+for model in model_sentimen_dict.values():
+    model.eval()
 
-# UI
-st.title("Prediksi Aspek dan Sentimen (Multi-label)")
+# --- UI Streamlit
+st.title("Prediksi Aspek dan Sentimen Ulasan")
 
 user_input = st.text_area("Masukkan teks ulasan:")
 
 if st.button("Prediksi"):
     if not user_input.strip():
-        st.warning("Tolong isi teks ulasan terlebih dahulu.")
+        st.warning("Tolong masukkan teks ulasan terlebih dahulu.")
     else:
         st.subheader("Hasil Prediksi:")
         aspek_terdeteksi = []
@@ -52,10 +60,9 @@ if st.button("Prediksi"):
         for aspek in aspek_list:
             model = model_aspek_dict[aspek]
             with torch.no_grad():
-                # Anda bisa ubah representasi input ini sesuai modelmu
-                input_tensor = torch.tensor([user_input])  # Placeholder
-                pred = model.predict([user_input])[0]  # ganti ini sesuai modelmu
-                if pred == 1:  # ya
+                # Ubah bagian ini sesuai input tensor yang cocok dengan modelmu
+                pred = model.predict([user_input])[0]  # sesuaikan jika pakai tokenizer/vectorizer sendiri
+                if pred == 1:
                     aspek_terdeteksi.append(aspek)
 
         if not aspek_terdeteksi:
@@ -65,5 +72,5 @@ if st.button("Prediksi"):
                 st.markdown(f"**Aspek:** {aspek.capitalize()}")
                 model_sent = model_sentimen_dict[aspek]
                 with torch.no_grad():
-                    sent_pred = model_sent.predict([user_input])[0]  # ganti sesuai model
+                    sent_pred = model_sent.predict([user_input])[0]
                 st.markdown(f"→ Sentimen: **{sent_pred}**")
