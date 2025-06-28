@@ -1,72 +1,69 @@
 import streamlit as st
 import torch
-import torch.nn.functional as F
+import os
+import zipfile
+import requests
+from io import BytesIO
 
-st.title("Upload Model PyTorch dan Prediksi Aspek + Sentimen")
+# --- Link ZIP dari Google Drive (pastikan public)
+ZIP_ID = "GANTI_DENGAN_ID_GOOGLE_DRIVE"
+ZIP_URL = f"https://drive.google.com/uc?id={ZIP_ID}"
 
-# Upload model aspek (.pt)
-uploaded_model_aspek = st.file_uploader("Upload file model aspek (.pt)", type=["pt"])
-model_aspek = None
-if uploaded_model_aspek is not None:
-    try:
-        model_aspek = torch.load(uploaded_model_aspek)
-        model_aspek.eval()
-        st.success("Model aspek berhasil diupload dan dimuat!")
-    except Exception as e:
-        st.error(f"Gagal load model aspek: {e}")
+@st.cache_resource
+def download_models():
+    response = requests.get(ZIP_URL)
+    with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
+        zip_ref.extractall("models")
+    return True
 
-# Upload model sentimen (.pt)
-uploaded_model_sentimen = st.file_uploader("Upload file model sentimen (.pt)", type=["pt"])
-model_sentimen = None
-if uploaded_model_sentimen is not None:
-    try:
-        model_sentimen = torch.load(uploaded_model_sentimen)
-        model_sentimen.eval()
-        st.success("Model sentimen berhasil diupload dan dimuat!")
-    except Exception as e:
-        st.error(f"Gagal load model sentimen: {e}")
+if not os.path.exists("models/aspek/petugas.pt"):
+    st.info("Mengunduh model...")
+    download_models()
 
-st.markdown("---")
+# Daftar aspek
+aspek_list = ["petugas", "ibadah", "akomodasi", "konsumsi", "transportasi", "lainnya"]
+
+# Load semua model aspek
+model_aspek_dict = {
+    aspek: torch.load(f"models/aspek/{aspek}.pt") for aspek in aspek_list
+}
+# Load semua model sentimen
+model_sentimen_dict = {
+    aspek: torch.load(f"models/sentimen/{aspek}.pt") for aspek in aspek_list
+}
+
+for m in model_aspek_dict.values():
+    m.eval()
+for m in model_sentimen_dict.values():
+    m.eval()
+
+# UI
+st.title("Prediksi Aspek dan Sentimen (Multi-label)")
 
 user_input = st.text_area("Masukkan teks ulasan:")
 
-# *** Contoh tokenizer sederhana, sesuaikan dengan yang kamu pakai saat training! ***
-def simple_tokenizer(text):
-    # misal: lowercase, split spasi, ubah jadi index (dummy)
-    tokens = text.lower().split()
-    # buat tensor dummy: convert tiap kata ke index, contoh:
-    word_to_idx = {"petugas":0, "ibadah":1, "transportasi":2, "akomodasi":3, "konsumsi":4, "lainnya":5}
-    indices = [word_to_idx.get(w, 6) for w in tokens]  # 6 = unknown token
-    return torch.tensor(indices).unsqueeze(0)  # batch size 1
-
 if st.button("Prediksi"):
-    if model_aspek is None or model_sentimen is None:
-        st.warning("Silakan upload kedua model terlebih dahulu!")
-    elif not user_input.strip():
-        st.warning("Masukkan teks terlebih dahulu!")
+    if not user_input.strip():
+        st.warning("Tolong isi teks ulasan terlebih dahulu.")
     else:
-        try:
-            # Tokenize input
-            input_tensor = simple_tokenizer(user_input)
+        st.subheader("Hasil Prediksi:")
+        aspek_terdeteksi = []
 
-            # Prediksi aspek
+        for aspek in aspek_list:
+            model = model_aspek_dict[aspek]
             with torch.no_grad():
-                output_aspek = model_aspek(input_tensor)  # output logits
-                probs_aspek = F.softmax(output_aspek, dim=1)
-                pred_idx_aspek = torch.argmax(probs_aspek, dim=1).item()
+                # Anda bisa ubah representasi input ini sesuai modelmu
+                input_tensor = torch.tensor([user_input])  # Placeholder
+                pred = model.predict([user_input])[0]  # ganti ini sesuai modelmu
+                if pred == 1:  # ya
+                    aspek_terdeteksi.append(aspek)
 
-                # Ambil nama kelas aspek, ganti dengan nama kelas sesuai modelmu
-                kelas_aspek = ["petugas", "ibadah", "transportasi", "akomodasi", "konsumsi", "lainnya"]
-                aspek_terpilih = kelas_aspek[pred_idx_aspek]
-
-                # Prediksi sentimen (misal model sentimen pakai input yang sama)
-                output_sentimen = model_sentimen(input_tensor)
-                probs_sentimen = F.softmax(output_sentimen, dim=1)
-                pred_idx_sentimen = torch.argmax(probs_sentimen, dim=1).item()
-                kelas_sentimen = ["negatif", "netral", "positif"]
-                sentimen_terpilih = kelas_sentimen[pred_idx_sentimen]
-
-            st.write(f"**Aspek terdeteksi:** {aspek_terpilih}")
-            st.write(f"**Sentimen:** {sentimen_terpilih}")
-        except Exception as e:
-            st.error(f"Gagal melakukan prediksi: {e}")
+        if not aspek_terdeteksi:
+            st.info("Tidak ada aspek terdeteksi.")
+        else:
+            for aspek in aspek_terdeteksi:
+                st.markdown(f"**Aspek:** {aspek.capitalize()}")
+                model_sent = model_sentimen_dict[aspek]
+                with torch.no_grad():
+                    sent_pred = model_sent.predict([user_input])[0]  # ganti sesuai model
+                st.markdown(f"→ Sentimen: **{sent_pred}**")
